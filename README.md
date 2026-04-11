@@ -12,6 +12,16 @@ Built with Next.js. Tickets are Markdown files with YAML frontmatter, stored on 
 - **Category and priority filtering** — filter by category, status, tags, priority
 - **Self-hosted** — runs on your own infrastructure, no external dependencies
 
+## Prerequisites
+
+You'll need:
+
+- **Node.js 18+** (for running the dev server directly) or **Docker/Podman** (for containerized deployment)
+- **npm** (comes with Node.js)
+- **A filesystem** with read/write access to a ticket data directory
+
+No database, no Redis, no external services required.
+
 ## Quick Start
 
 ```bash
@@ -37,9 +47,37 @@ Open [http://localhost:3000](http://localhost:3000).
 |---|---|---|
 | `TICKETS_BASE` | `./data/tickets` | Path to ticket data directory |
 | `TICKET_WRITE_PROXY_URL` | `http://localhost:9187` | Write proxy endpoint |
-| `TICKET_WRITE_PROXY_TOKEN` | — | Auth token for write operations |
+| `TICKET_WRITE_PROXY_TOKEN` | `change-me-in-production` | Auth token for write operations |
 | `PORT` | `3000` | Listen port |
 | `HOSTNAME` | `0.0.0.0` | Listen address |
+
+Copy `.env.example` to `.env` and adjust values as needed.
+
+## File Permissions
+
+The app and proxy write to the filesystem. Make sure the user running them has **read and write access** to `TICKETS_BASE` (and its `open/` and `closed/` subdirectories).
+
+```bash
+# Example: create directories and set ownership
+mkdir -p data/tickets/open data/tickets/closed
+chown -R $(id -u):$(id -g) data/
+```
+
+The Dockerfile runs as UID 1001. If your data directory is owned by a different UID, either:
+- `chown -R 1001:1001 /path/to/data` (adjust the container UID)
+- Or run the container with `--user $(id -u):$(id -g)` and remove the `USER nextjs` directive from the Dockerfile
+
+## Write Proxy (Optional)
+
+The inline editor in the web UI uses a write proxy (`proxy.js`) to handle filesystem writes — this avoids permission issues when the Next.js server runs as a different user than the data directory owner.
+
+**To enable inline editing:**
+
+1. Start the proxy: `node proxy.js`
+2. Set the same `TOKEN` value in both `proxy.js` and your app's environment
+3. The app's `TICKET_WRITE_PROXY_URL` must point to the proxy (e.g. `http://localhost:9187`)
+
+For read-only use (no inline editing from the web UI), you don't need the proxy — the AI agent writes tickets directly to the filesystem.
 
 ## Ticket Format
 
@@ -60,19 +98,30 @@ type: bug
 Describe the issue here...
 ```
 
-## Deploying
+See `AGENTS.md` for the full field reference and AI agent instructions.
+
+## Deploying with Docker
 
 ```bash
-# Build the Docker image
-npm run build
+# Build the image
+docker build -t tickets-app .
 
-# Or with Podman
-podman build -t tickets-app .
-
-# Run the container
-podman run -d \
+# Run with your data directory mounted
+docker run -d \
   -p 3000:3000 \
-  -v $(pwd)/data:/app/data/tickets \
+  -v /path/to/your/data:/app/data/tickets \
+  --name tickets-app \
+  tickets-app
+```
+
+For inline editing, also mount your `.env` or set the environment variables:
+
+```bash
+docker run -d \
+  -p 3000:3000 \
+  -p 9187:9187 \
+  -v /path/to/your/data:/app/data/tickets \
+  --env-file .env \
   --name tickets-app \
   tickets-app
 ```
@@ -83,7 +132,7 @@ podman run -d \
 - TypeScript
 - Tailwind CSS v4
 - gray-matter (frontmatter parsing)
-- Podman (container runtime)
+- Node.js native HTTP write proxy (optional)
 
 ## License
 

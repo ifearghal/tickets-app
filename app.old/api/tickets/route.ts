@@ -20,7 +20,7 @@ export interface Ticket {
   type?: string;
 }
 
-const TICKETS_BASE = process.env.TICKETS_BASE || './data/tickets';
+const TICKETS_BASE = '/home/samwise/tickets-data/tickets';
 
 async function readTickets(dir: string, status: 'open' | 'closed'): Promise<Ticket[]> {
   const tickets: Ticket[] = [];
@@ -63,11 +63,8 @@ async function readTickets(dir: string, status: 'open' | 'closed'): Promise<Tick
   return tickets;
 }
 
-export async function GET(req: Request) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(req.url);
-    const since = searchParams.get('since'); // ISO date string — returns only closed tickets closed after this time
-
     const [openTickets, closedTickets] = await Promise.all([
       readTickets(path.join(TICKETS_BASE, 'open'), 'open'),
       readTickets(path.join(TICKETS_BASE, 'closed'), 'closed'),
@@ -83,15 +80,6 @@ export async function GET(req: Request) {
       (b.date_closed || b.date_opened || '').localeCompare(a.date_closed || a.date_opened || '')
     );
     const recentClosed = closedTickets.slice(0, 10);
-
-    // Filter by 'since' if provided
-    let newlyClosed = closedTickets;
-    if (since) {
-      newlyClosed = closedTickets.filter(t => {
-        const d = t.date_closed || t.date_opened || '';
-        return d >= since;
-      });
-    }
 
     // Counts by category
     const allTickets = [...openTickets, ...closedTickets];
@@ -110,7 +98,6 @@ export async function GET(req: Request) {
         open: openTickets.length,
         closed: closedTickets.length,
       },
-      newlyClosed: since ? newlyClosed : undefined,
     });
   } catch (error) {
     console.error('Failed to load tickets:', error);
@@ -119,35 +106,4 @@ export async function GET(req: Request) {
       { status: 200 }
     );
   }
-}
-
-export async function POST() {
-  // Scan both open/ and closed/ to find the highest T-number in use
-  const usedNumbers = new Set<number>();
-
-  for (const dir of ['open', 'closed'] as const) {
-    const fullDir = path.join(TICKETS_BASE, dir);
-    try {
-      const files = await fs.readdir(fullDir);
-      for (const file of files) {
-        if (!file.endsWith('.md')) continue;
-        // Match T-XXX patterns
-        const match = file.match(/^T-(\d+)/);
-        if (match) {
-          usedNumbers.add(parseInt(match[1], 10));
-        }
-      }
-    } catch {
-      // directories might not exist — that's fine
-    }
-  }
-
-  // Find the next available number
-  let nextNumber = 1;
-  while (usedNumbers.has(nextNumber)) {
-    nextNumber++;
-  }
-
-  const newId = `T-${nextNumber}`;
-  return NextResponse.json({ id: newId });
 }

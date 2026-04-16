@@ -5,7 +5,11 @@ import matter from 'gray-matter';
 
 export const dynamic = 'force-dynamic';
 
-const TICKETS_BASE = process.env.TICKETS_BASE || './data/tickets';
+const TICKETS_BASE = '/home/samwise/tickets-data/tickets';
+// Write proxy runs on sam480, tunneled to production host via SSH
+// Container reaches it via host.containers.internal
+const WRITE_PROXY_URL = process.env.TICKET_WRITE_PROXY_URL || 'http://169.254.1.2:9187';
+const WRITE_PROXY_TOKEN = process.env.TICKET_WRITE_PROXY_TOKEN || 'shireworks-ticket-proxy';
 
 async function findTicketFile(id: string): Promise<{ filePath: string; status: 'open' | 'closed' } | null> {
   for (const status of ['open', 'closed'] as const) {
@@ -17,6 +21,7 @@ async function findTicketFile(id: string): Promise<{ filePath: string; status: '
         if (file.startsWith(id + '-') || file === id + '.md') {
           return { filePath: path.join(dir, file), status };
         }
+        // Also try matching by reading the frontmatter id
         try {
           const content = await fs.readFile(path.join(dir, file), 'utf8');
           const { data } = matter(content);
@@ -103,33 +108,27 @@ export async function PUT(
       return NextResponse.json({ error: 'Invalid markdown/frontmatter' }, { status: 400 });
     }
 
-    const found = await findTicketFile(id);
-    if (!found) {
-      return NextResponse.json({ error: 'Ticket not found' }, { status: 404 });
+    // Forward the write to the proxy running on sam480 (tunneled through SSH)
+    const proxyRes = await fetch(`${WRITE_PROXY_URL}/tickets/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-ticket-proxy-token': WRITE_PROXY_TOKEN,
+      },
+      body: JSON.stringify({ rawContent }),
+    });
+
+    if (!proxyRes.ok) {
+      const err = await proxyRes.json().catch(() => ({}));
+      console.error('Write proxy error:', err);
+      return NextResponse.json(
+        { error: (err as { error?: string }).error || 'Write proxy failed' },
+        { status: proxyRes.status }
+      );
     }
 
-    // Check if status changed — move file to correct directory if needed
-    let targetPath = found.filePath;
-    let moved = false;
-    const { data: newData } = matter(rawContent);
-    const newStatus = newData.status || found.status;
-    if (newStatus !== found.status) {
-      const newDir = newStatus === 'closed' ? 'closed' : 'open';
-      const newDirPath = path.join(TICKETS_BASE, newDir);
-      const filename = path.basename(found.filePath);
-      targetPath = path.join(newDirPath, filename);
-      try {
-        await fs.rename(found.filePath, targetPath);
-        moved = true;
-      } catch (err) {
-        return NextResponse.json({ error: 'Failed to move ticket file' }, { status: 500 });
-      }
-    }
-
-    // Write to the (possibly new) target path
-    await fs.writeFile(targetPath, rawContent, 'utf8');
-
-    return NextResponse.json({ success: true, filename: path.basename(targetPath), moved });
+    const result = await proxyRes.json();
+    return NextResponse.json(result);
   } catch (error) {
     console.error('Failed to save ticket:', error);
     return NextResponse.json({ error: 'Failed to save ticket' }, { status: 500 });

@@ -40,6 +40,7 @@ const categoryColors: Record<string, { bg: string; text: string; badge: string }
   Gaming:         { bg: 'border-purple-700/40',  text: 'text-purple-300',  badge: 'bg-purple-900/50 text-purple-300' },
   Appliances:     { bg: 'border-amber-700/40',   text: 'text-amber-300',   badge: 'bg-amber-900/50 text-amber-300' },
   Product:        { bg: 'border-emerald-700/40',  text: 'text-emerald-300',  badge: 'bg-emerald-900/50 text-emerald-300' },
+  ShireWorks:     { bg: 'border-lime-700/40',    text: 'text-lime-300',      badge: 'bg-lime-900/50 text-lime-300' },
   Community:      { bg: 'border-rose-700/40',    text: 'text-rose-300',      badge: 'bg-rose-900/50 text-rose-300' },
   Personal:       { bg: 'border-teal-700/40',    text: 'text-teal-300',      badge: 'bg-teal-900/50 text-teal-300' },
   FearOS:         { bg: 'border-fuchsia-700/40', text: 'text-fuchsia-300',   badge: 'bg-fuchsia-900/50 text-fuchsia-300' },
@@ -100,38 +101,12 @@ function buildHierarchy(flat: Ticket[]): TicketNode[] {
   return roots;
 }
 
-function computePriorityCounts(tickets: Ticket[]): Record<string, number> {
-  const counts: Record<string, number> = { high: 0, medium: 0, low: 0, none: 0 };
-  for (const t of tickets) {
-    if (!t.priority || (t.priority !== 'high' && t.priority !== 'medium' && t.priority !== 'low')) {
-      counts.none++;
-    } else {
-      counts[t.priority]++;
-    }
-  }
-  return counts;
-}
-
-function filterTickets(
-  tickets: Ticket[],
-  selectedCategories: string[],
-  selectedPriorities: string[]
-): Ticket[] {
-  return tickets.filter((t) => {
-    const categoryMatch = selectedCategories.length === 0 || selectedCategories.includes(t.category);
-    const priorityMatch = selectedPriorities.length === 0 || (t.priority && selectedPriorities.includes(t.priority));
-    return categoryMatch && priorityMatch;
-  });
-}
-
 export default function TicketPanel() {
   const [data, setData] = useState<TicketData | null>(null);
   const [loading, setLoading] = useState(true);
   const [showClosed, setShowClosed] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<{ id: string; title: string } | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-  const [selectedPriorities, setSelectedPriorities] = useState<string[]>([]);
 
   useEffect(() => {
     async function fetchTickets() {
@@ -164,23 +139,6 @@ export default function TicketPanel() {
     return collapsed.has(id);
   }
 
-  function toggleCategory(cat: string) {
-    setSelectedCategories((prev) =>
-      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
-    );
-  }
-
-  function togglePriority(pri: string) {
-    setSelectedPriorities((prev) =>
-      prev.includes(pri) ? prev.filter((p) => p !== pri) : [...prev, pri]
-    );
-  }
-
-  function clearFilters() {
-    setSelectedCategories([]);
-    setSelectedPriorities([]);
-  }
-
   if (loading) {
     return (
       <div className="bg-stone-950 border-2 border-stone-800/40 rounded-lg shadow-lg p-6">
@@ -193,12 +151,7 @@ export default function TicketPanel() {
   const recentClosed = data?.recentClosed || [];
   const totals = data?.totals || { open: 0, closed: 0 };
   const countsByCategory = data?.countsByCategory || {};
-
-  // Apply filters
-  const filteredOpen = filterTickets(openTickets, selectedCategories, selectedPriorities);
-  const hierarchy = buildHierarchy(filteredOpen);
-  const priorityCounts = computePriorityCounts(openTickets);
-  const hasActiveFilters = selectedCategories.length > 0 || selectedPriorities.length > 0;
+  const hierarchy = buildHierarchy(openTickets);
 
   function getCategoryColors(cat: string) {
     return categoryColors[cat] || defaultColors;
@@ -242,13 +195,9 @@ export default function TicketPanel() {
                   {t.category}
                 </span>
                 {t.priority && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); togglePriority(t.priority!); }}
-                    className={`text-xs ${priorityColors[t.priority]} hover:opacity-80 cursor-pointer transition-opacity`}
-                    title={`Filter by ${t.priority}`}
-                  >
+                  <span className={`text-xs ${priorityColors[t.priority]}`}>
                     {priorityIcons[t.priority]} {t.priority}
-                  </button>
+                  </span>
                 )}
               </div>
               {/* Title row — clickable, opens modal */}
@@ -307,76 +256,24 @@ export default function TicketPanel() {
         </h3>
         <div className="flex items-center gap-3">
           <span className="text-sm text-stone-300/70">
-            {hasActiveFilters ? (
-              <>
-                <span className="text-emerald-400 font-semibold">{filteredOpen.length}</span>
-                <span className="text-stone-500"> of </span>
-                <span className="text-emerald-400 font-semibold">{openTickets.length}</span>
-                <span className="text-stone-500"> shown</span>
-              </>
-            ) : (
-              <>
-                <span className="text-emerald-400 font-semibold">{totals.open}</span> open
-              </>
-            )}
+            <span className="text-emerald-400 font-semibold">{totals.open}</span> open
             {' · '}
             <span className="text-stone-400/70">{totals.closed}</span> closed
           </span>
         </div>
       </div>
 
-      {/* Category summary bar — clickable filters */}
+      {/* Category summary bar */}
       {Object.keys(countsByCategory).length > 0 && (
-        <div className="px-4 py-3 border-b border-stone-800/30">
-          <div className="flex flex-wrap gap-2 mb-2">
-            {Object.entries(countsByCategory).map(([cat, counts]) => {
-              const colors = getCategoryColors(cat);
-              const isSelected = selectedCategories.includes(cat);
-              return (
-                <button
-                  key={cat}
-                  onClick={() => toggleCategory(cat)}
-                  title={isSelected ? `Remove ${cat} filter` : `Filter by ${cat}`}
-                  className={`text-xs px-2 py-1 rounded font-medium transition-all cursor-pointer ${
-                    isSelected
-                      ? `${colors.badge} ring-1 ring-stone-400/50`
-                      : `${colors.badge} opacity-60 hover:opacity-100`
-                  }`}
-                >
-                  {cat}: {counts.open} open{counts.closed > 0 ? ` / ${counts.closed}` : ''}
-                </button>
-              );
-            })}
-          </div>
-          {/* Priority filters */}
-          <div className="flex flex-wrap gap-1 items-center">
-            <span className="text-xs text-stone-500 mr-1">Priority:</span>
-            {(['high', 'medium', 'low'] as const).map((p) => {
-              const isSelected = selectedPriorities.includes(p);
-              return (
-                <button
-                  key={p}
-                  onClick={() => togglePriority(p)}
-                  title={isSelected ? `Remove ${p} filter` : `Filter by ${p}`}
-                  className={`text-xs px-2 py-0.5 rounded font-medium transition-all cursor-pointer ${
-                    isSelected
-                      ? `${priorityColors[p]} ring-1 ring-stone-400/50 bg-stone-900/50`
-                      : `${priorityColors[p]} opacity-50 hover:opacity-100`
-                  }`}
-                >
-                  {priorityIcons[p]} {p.charAt(0).toUpperCase() + p.slice(1)} ({priorityCounts[p]})
-                </button>
-              );
-            })}
-            {hasActiveFilters && (
-              <button
-                onClick={clearFilters}
-                className="text-xs text-stone-400 hover:text-stone-200 ml-2 transition-colors"
-              >
-                ✕ clear
-              </button>
-            )}
-          </div>
+        <div className="px-4 py-3 border-b border-stone-800/30 flex flex-wrap gap-2">
+          {Object.entries(countsByCategory).map(([cat, counts]) => {
+            const colors = getCategoryColors(cat);
+            return (
+              <span key={cat} className={`text-xs px-2 py-1 rounded font-medium ${colors.badge}`}>
+                {cat}: {counts.open} open{counts.closed > 0 ? ` / ${counts.closed} closed` : ''}
+              </span>
+            );
+          })}
         </div>
       )}
 
@@ -385,7 +282,7 @@ export default function TicketPanel() {
         {hierarchy.length === 0 ? (
           <div className="p-6 text-center text-stone-500 text-sm">
             <span className="text-2xl block mb-2">✅</span>
-            {hasActiveFilters ? 'No tickets match the current filters.' : 'No open tickets — all clear!'}
+            No open tickets — all clear!
           </div>
         ) : (
           hierarchy.map((node) => renderTicketNode(node))

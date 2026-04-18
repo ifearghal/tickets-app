@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 import matter from 'gray-matter';
+import { randomUUID } from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
@@ -78,7 +79,7 @@ export async function GET(
     });
   } catch (error) {
     console.error('Failed to load ticket:', error);
-    return NextResponse.json({ error: 'Failed to load ticket' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to load ticket', detail: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }
 
@@ -96,9 +97,9 @@ export async function PUT(
       return NextResponse.json({ error: 'rawContent must be a string' }, { status: 400 });
     }
 
-    // Validate it's still valid markdown with frontmatter
+    let parsed;
     try {
-      matter(rawContent);
+      parsed = matter(rawContent);
     } catch {
       return NextResponse.json({ error: 'Invalid markdown/frontmatter' }, { status: 400 });
     }
@@ -108,30 +109,29 @@ export async function PUT(
       return NextResponse.json({ error: 'Ticket not found' }, { status: 404 });
     }
 
-    // Check if status changed — move file to correct directory if needed
-    let targetPath = found.filePath;
-    let moved = false;
-    const { data: newData } = matter(rawContent);
-    const newStatus = newData.status || found.status;
-    if (newStatus !== found.status) {
-      const newDir = newStatus === 'closed' ? 'closed' : 'open';
-      const newDirPath = path.join(TICKETS_BASE, newDir);
-      const filename = path.basename(found.filePath);
-      targetPath = path.join(newDirPath, filename);
-      try {
-        await fs.rename(found.filePath, targetPath);
-        moved = true;
-      } catch (err) {
-        return NextResponse.json({ error: 'Failed to move ticket file' }, { status: 500 });
+    const newStatus = parsed.data.status || found.status;
+    const targetDir = path.join(TICKETS_BASE, newStatus === 'closed' ? 'closed' : 'open');
+    const filename = path.basename(found.filePath);
+    const targetPath = path.join(targetDir, filename);
+
+    // Atomic write: write to temp file first, then rename to avoid TOCTOU
+    const tmpPath = path.join(targetDir, `.~tmp.${randomUUID()}`);
+    try {
+      await fs.writeFile(tmpPath, rawContent, 'utf8');
+      await fs.rename(tmpPath, targetPath);
+      // Delete the old file if it moved to a different directory
+      if (found.filePath !== targetPath) {
+        try { await fs.unlink(found.filePath); } catch { /* ignore */ }
       }
+    } catch (err) {
+      try { await fs.unlink(tmpPath); } catch { /* ignore */ }
+      console.error('Failed to write ticket:', err);
+      return NextResponse.json({ error: 'Failed to write ticket', detail: err instanceof Error ? err.message : String(err) }, { status: 500 });
     }
 
-    // Write to the (possibly new) target path
-    await fs.writeFile(targetPath, rawContent, 'utf8');
-
-    return NextResponse.json({ success: true, filename: path.basename(targetPath), moved });
+    return NextResponse.json({ success: true, filename, status: newStatus });
   } catch (error) {
     console.error('Failed to save ticket:', error);
-    return NextResponse.json({ error: 'Failed to save ticket' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to save ticket', detail: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }

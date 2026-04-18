@@ -1,4 +1,5 @@
 'use client';
+import DOMPurify from 'dompurify';
 
 import { useEffect, useState } from 'react';
 import ParentTicketInput from './ParentTicketInput';
@@ -535,7 +536,7 @@ export default function TicketModal({ isOpen, onClose, ticketId, ticketTitle }: 
               /* View mode — rendered markdown */
               <div
                 className="prose prose-invert max-w-none text-sm"
-                dangerouslySetInnerHTML={{ __html: simpleMarkdownToHtml(ticket.body) }}
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(simpleMarkdownToHtml(ticket.body)) }}
               />
             )
           )}

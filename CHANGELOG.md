@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.2.3] — 2026-04-17
+
+### Fixed
+
+- **T-0211 duplicate file bug**: PUT now deletes the old file when a ticket moves between open/ and closed/ directories (fixes regression introduced in T-0202)
+
+## [0.2.2] — 2026-04-17
+
+### Fixed
+
+- **UUID instead of T-numbers**: Switched from auto-incrementing T-number to UUID for ticket IDs, eliminating race conditions in concurrent ticket creation (fixes T-0199, T-0203)
+- **Atomic PUT writes**: Ticket updates now use a temp file + atomic rename instead of direct writes, preventing TOCTOU data corruption (fixes T-0202)
+- **XSS protection**: Markdown output is now sanitized with DOMPurify, blocking inline script injection (fixes T-0200)
+- **Error status codes**: API errors now return HTTP 500 instead of 200, ensuring proper error handling on the client (fixes T-0201)
+
 ## [0.2.1] — 2026-04-16
 
 ### Fixed
@@ -44,6 +59,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Ticket dashboard with category grouping and counts
 - Ticket detail modal with rendered markdown
 - Create, edit, and close tickets from the UI
-- API-driven ticket management (`/api/tickets`, `/api/tickets/[id]`)
+- API-driven ticket management (/api/tickets, /api/tickets/[id])
 - Self-hosted deployment support (standalone Next.js output)
 - File-based storage — tickets are Markdown files with YAML frontmatter

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 import matter from 'gray-matter';
+import { randomUUID } from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,25 +67,22 @@ async function readTickets(dir: string, status: 'open' | 'closed'): Promise<Tick
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const since = searchParams.get('since'); // ISO date string — returns only closed tickets closed after this time
+    const since = searchParams.get('since');
 
     const [openTickets, closedTickets] = await Promise.all([
       readTickets(path.join(TICKETS_BASE, 'open'), 'open'),
       readTickets(path.join(TICKETS_BASE, 'closed'), 'closed'),
     ]);
 
-    // Sort open by date_opened desc (newest first)
     openTickets.sort((a, b) =>
       (b.date_opened || '').localeCompare(a.date_opened || '')
     );
 
-    // Sort closed by date_closed desc, take last 10
     closedTickets.sort((a, b) =>
       (b.date_closed || b.date_opened || '').localeCompare(a.date_closed || a.date_opened || '')
     );
     const recentClosed = closedTickets.slice(0, 10);
 
-    // Filter by 'since' if provided
     let newlyClosed = closedTickets;
     if (since) {
       newlyClosed = closedTickets.filter(t => {
@@ -93,7 +91,6 @@ export async function GET(req: Request) {
       });
     }
 
-    // Counts by category
     const allTickets = [...openTickets, ...closedTickets];
     const countsByCategory: Record<string, { open: number; closed: number }> = {};
     for (const t of allTickets) {
@@ -115,39 +112,22 @@ export async function GET(req: Request) {
   } catch (error) {
     console.error('Failed to load tickets:', error);
     return NextResponse.json(
-      { open: [], recentClosed: [], countsByCategory: {}, totals: { open: 0, closed: 0 } },
-      { status: 200 }
+      { error: 'Failed to load tickets', detail: error instanceof Error ? error.message : String(error) },
+      { status: 500 }
     );
   }
 }
 
+// POST /api/tickets - allocate a new ticket ID using UUID (eliminates race condition)
 export async function POST() {
-  // Scan both open/ and closed/ to find the highest T-number in use
-  const usedNumbers = new Set<number>();
-
-  for (const dir of ['open', 'closed'] as const) {
-    const fullDir = path.join(TICKETS_BASE, dir);
-    try {
-      const files = await fs.readdir(fullDir);
-      for (const file of files) {
-        if (!file.endsWith('.md')) continue;
-        // Match T-XXX patterns
-        const match = file.match(/^T-(\d+)/);
-        if (match) {
-          usedNumbers.add(parseInt(match[1], 10));
-        }
-      }
-    } catch {
-      // directories might not exist — that's fine
-    }
+  try {
+    const newId = randomUUID();
+    return NextResponse.json({ id: newId });
+  } catch (error) {
+    console.error('Failed to allocate ticket ID:', error);
+    return NextResponse.json(
+      { error: 'Failed to allocate ticket ID', detail: error instanceof Error ? error.message : String(error) },
+      { status: 500 }
+    );
   }
-
-  // Find the next available number
-  let nextNumber = 1;
-  while (usedNumbers.has(nextNumber)) {
-    nextNumber++;
-  }
-
-  const newId = `T-${nextNumber}`;
-  return NextResponse.json({ id: newId });
 }

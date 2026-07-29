@@ -22,7 +22,7 @@ A self-hosted ticketing system with AI integration. Describe a ticket in plain l
 
 ```bash
 # Clone the repository
-git clone https://github.com/ifeArggal/tickets-app.git
+git clone https://github.com/ifearghal/tickets-app.git
 cd tickets-app
 
 # Install dependencies
